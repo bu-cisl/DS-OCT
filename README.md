@@ -1,2 +1,2 @@
 # DS-OCT
-Codebase and dataset for reproducing results in DS-OCT paper
+Codebase for DS model training and testing to reproduce results in DS-OCT paper
