@@ -10,3 +10,14 @@ The generator and registration network training consists of pre-training and fin
 <img src="https://github.com/user-attachments/assets/7a7daa61-c03d-4de5-b155-410992502359"  width="800" />
 
 Please consider citing this paper if you found this repo useful: https://doi.org/10.1038/s41377-024-01658-0
+
+## Requirements
+- Python 3.8.10
+- PyTorch 1.13.1
+- CUDA 12.2
+
+## Training 
+
+## Testing
+
+## Data
