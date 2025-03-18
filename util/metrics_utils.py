@@ -4,12 +4,12 @@ from skimage.morphology import binary_erosion, binary_dilation,binary_closing, d
 from skimage.measure import regionprops_table
 from scipy.ndimage import distance_transform_edt, binary_fill_holes
 from skimage.metrics import mean_squared_error, peak_signal_noise_ratio, structural_similarity
-from frangi_sc import frangi
+from util.frangi_sc import frangi
 import pandas as pd
 import scipy
 import numpy as np
 import cv2 as cv
-
+metrics_names = ['MSE','PCC','SSIM','CD','fiber_PCC','layer_IOU','vessel_IOU','JS_length','JS_diameter','fiber_area_diff','fiber_num_diff','vessel_area_diff']
 def linear_normalize(tmp):
     return (tmp - tmp.min())/(tmp.max() - tmp.min())
 
@@ -18,6 +18,8 @@ def hy_th(img, low, high):
 
 def find_layer_mask(Gallyas_img):
     img = Gallyas_img.mean(axis=2) if len(Gallyas_img.shape) == 3 else Gallyas_img
+    if abs(img.max() - img.min())<1e-6:
+        return np.zeros_like(img), np.zeros_like(img)
     mask_smp = remove_small_holes(remove_small_objects(img < thresholding.threshold_triangle(img),256), 512)
     mask_456 = distance_transform_edt(mask_smp)>75 ## theoretical thickness of 1/2/3 layer is 1300 um ~ 108 pixels
     if len(Gallyas_img.shape) == 3:
@@ -73,12 +75,12 @@ def fr(img):
     return linear_normalize(filt_max), ori
 
 def extract_fiber(Gallyas_img, th_fr=0.005):
+    img = Gallyas_img.mean(axis=2) if len(Gallyas_img.shape) == 3 else Gallyas_img
+    if abs(img.max() - img.min())<1e-6:
+        return np.zeros_like(img)[:,:,None], np.zeros_like(img)
     layer_mask, mask_smp = find_layer_mask(Gallyas_img)
     dist_map = distance_transform_edt(mask_smp)
-    if len(Gallyas_img.shape) == 3:
-        fr_filt, ori = fr(Gallyas_img.mean(axis=2))
-    else:
-        fr_filt, ori  = fr(Gallyas_img)
+    fr_filt, ori  = fr(img)
     fiber_mask = hy_th(fr_filt, 0.001, th_fr)*layer_mask
     prob_map = np.exp(-(angle(ori) - edg_angle(dist_map)) ** 2)
     fiber_mask = (prob_map > 0.6) * fiber_mask
@@ -92,15 +94,16 @@ def compute_fiber_df(fiber_mask_denoised):
     lb_img = ski.measure.label(fiber_mask_denoised)
     df = pd.DataFrame(regionprops_table(lb_img, properties=['label','axis_major_length','area']))
     df['diameter'] = df['area']/(df['axis_major_length']+1e-8)
-    df = df[(df['axis_major_length'] < 800 / 12.0) * (df['diameter'] < 50 / 12.0)]
+    df = df[(df['axis_major_length'] < 800 / 12.0) & (df['diameter'] < 50 / 12.0)]
     return df
 
 def extract_vessel_WM(Gallyas_img):
+    img = Gallyas_img.mean(axis=2) if len(Gallyas_img.shape) == 3 else Gallyas_img
+    if abs(img.max() - img.min())<1e-6:
+        return np.zeros_like(img)
     if len(Gallyas_img.shape) == 3:
-        img = Gallyas_img.mean(axis=2)
         th_WM = thresholding.threshold_minimum(img)
     else:
-        img = Gallyas_img
         th_WM = thresholding.threshold_otsu(img)
     mask_WM = binary_dilation(binary_erosion(fill_holes(img < th_WM), disk(10)), disk(3))
     vessels = remove_small_objects(binary_opening(mask_WM * (img > th_WM), disk(1)), 10)
@@ -125,6 +128,9 @@ def CD(img1, img2):
     L2, A2, B2 = cv.split(I)
     return np.sqrt((L1 - L2)**2 + (A1 - A2)**2 + (B1 - B2)**2).mean()
 
+def pixel_level_metrics(img1, img2):
+    return np.array([MSE(img1, img2), PCC(img1, img2), SSIM(img1, img2), CD(img1, img2)])
+
 '''fiber_PCC and layer_IOU'''
 def fiber_PCC_and_layer_IOU(img1, img2):
     layer_mask1, _ = find_layer_mask(img1)
@@ -134,7 +140,7 @@ def fiber_PCC_and_layer_IOU(img1, img2):
     flt_valid_val2 = flatten_image_to_valid_1Darray(common_mask, img2)
     fiber_PCC = np.corrcoef(flt_valid_val1, flt_valid_val2)[0, 1]
     layer_IOU = IOU(layer_mask1, layer_mask2)
-    return fiber_PCC, layer_IOU
+    return np.array([fiber_PCC, layer_IOU])
 
 def vessel_IOU(img1, img2):
     vessel1 = extract_vessel_WM(img1)
@@ -157,7 +163,18 @@ def compute_diff_fiber_area_and_number(df, df_gt):
     num_diff = abs(len(df['label']) - len(df_gt['label'])) / len(df_gt['label'])
     return area_diff, num_diff
 
-def vessel_area_diff(vessel1, vessel_gt):
+def unpaired_fiber_metrics(img, img_gt):
+    fm_trans, _ = extract_fiber(img)
+    fm_gt, _ = extract_fiber(img_gt)
+    df_trans = compute_fiber_df(fm_trans)
+    df_gt = compute_fiber_df(fm_gt)
+    JS_length, JS_diameter = compute_JS_fiber_length_and_diameter(df_trans, df_gt)
+    area_diff, num_diff = compute_diff_fiber_area_and_number(df_trans, df_gt)
+    return np.array([JS_length, JS_diameter, area_diff, num_diff])
+
+def vessel_area_diff(img, img_gt):
+    vessel1 = extract_vessel_WM(img)
+    vessel_gt = extract_vessel_WM(img_gt)
     return abs(vessel1.sum() - vessel_gt.sum()) / vessel_gt.sum()
 
 
