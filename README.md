@@ -17,7 +17,10 @@ Please consider citing this paper if you found this repo useful: https://doi.org
 - JupyterLab (optional)
 
 ## Training 
+Refer to JupyterLab notebook "train-FastCUT+REG+Pseudo.ipynb" or convert it to .py file to run
 
 ## Testing
+Refer to JupyterLab notebook "G_and_R_testing.ipynb" or convert it to .py file to run
 
 ## Data
+Example training and testing data are under folders: Dataset/example_training_data and Dataset/example_testing_data. Please contact authors for more available data given reasonable request.
