@@ -14,6 +14,7 @@ Please consider citing this paper if you found this repo useful: https://doi.org
 - Python 3.8.10
 - PyTorch 1.13.1
 - CUDA 12.2
+- JupyterLab (optional)
 
 ## Training 
 
