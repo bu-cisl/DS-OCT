@@ -8,16 +8,9 @@ import os
 from matplotlib import pyplot as plt
 from util.data_preparation import patch_wise_predict
 
-import torchvision.transforms as T 
-import sys
-sys.path.append('/projectnb/rise2019/yiw445/Torch_version/')
-from util.util import str2bool
-import models.stn
-
-import util.metrics_utils as M
 def linear_normalize(tmp):
     return (tmp - tmp.min())/(tmp.max() - tmp.min())
-#     return np.clip((tmp - tmp.min()) / (tmp.max() - tmp.min()), 0, 1)
+
 
 class CycleGANModel(BaseModel):
     """
@@ -57,27 +50,7 @@ class CycleGANModel(BaseModel):
             parser.add_argument('--threshold_A', type=float, default=0.6933594, help='weight for cycle loss (A -> B -> A)')
             parser.add_argument('--threshold_B', type=float, default=0.5683594, help='weight for cycle loss (B -> A -> B)')
             parser.add_argument('--lambda_identity', type=float, default=0, help='use identity mapping. Setting lambda_identity other than 0 has an effect of scaling the weight of the identity mapping loss. For example, if the weight of the identity loss should be 10 times smaller than the weight of the reconstruction loss, please set lambda_identity = 0.1')
-            parser.add_argument('--LAB_space', type=str2bool, default=False, help='whether to convert GT to LAB color space')
 
-            #new metrics watcher argument
-#             parser.add_argument('--train_R_with_G', type=str2bool, nargs='?', const=True, default=True, help='train registration network with loss terms dependent on generator')
-#             parser.add_argument('--only_train_R', type=str2bool, nargs='?', const=True, default=False, help='only train registration network')
-#             parser.add_argument('--only_train_G', type=str2bool, nargs='?', const=True, default=False, help='only train generator by CUT')
-#             parser.add_argument('--train_G_pseudo', type=str2bool, nargs='?', const=True, default=False, help='only train generator by CUT')
-            
-            #new metric watcher
-            parser.add_argument('--stn_cfg', type=str, default='A', help='Set the configuration used to build the STN.')
-            parser.add_argument('--stn_type', type=str, default='pyramid', help='The type of STN to use. Currently supported are [affine, pyramid]')
-            parser.add_argument('--stn_bilateral_alpha', type=float, default=0.0,
-                            help='The bilateral filtering coefficient used in the the smoothness loss.'
-                                 'This is relevant for unet stn only.')
-            parser.add_argument('--stn_no_identity_init', action='store_true',
-                            help='Whether to start the transformation from identity transformation or some random'
-                                 'transformation. This is only relevant for unet stn (for affine the model'
-                                 'doesn\'t converge).')
-            parser.add_argument('--stn_multires_reg', type=int, default=1,
-                            help='In multi-resolution smoothness, the regularization is applied on multiple resolution.'
-                                 '(default : 1, means no multi-resolution)')
         return parser
 
     def __init__(self, opt):
@@ -87,7 +60,6 @@ class CycleGANModel(BaseModel):
             opt (Option class)-- stores all the experiment flags; needs to be a subclass of BaseOptions
         """
         BaseModel.__init__(self, opt)
-        
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
         self.loss_names = ['D_A', 'G_A', 'cycle_A', 'idt_A', 'D_B', 'G_B', 'cycle_B', 'idt_B']
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
@@ -100,9 +72,7 @@ class CycleGANModel(BaseModel):
         self.visual_names = visual_names_A + visual_names_B  # combine visualizations for A and B
         # specify the models you want to save to the disk. The training/test scripts will call <BaseModel.save_networks> and <BaseModel.load_networks>.
         if self.isTrain:
-#             self.model_names = ['G_A', 'G_B', 'D_A', 'D_B']
-            #only save G_A
-            self.model_names = ['G_A']
+            self.model_names = ['G_A', 'G_B', 'D_A', 'D_B']
         else:  # during test time, only load Gs
             self.model_names = ['G_A', 'G_B']
         self.mini_bs = 1
@@ -111,10 +81,7 @@ class CycleGANModel(BaseModel):
         # Code (vs. paper): G_A (G), G_B (F), D_A (D_Y), D_B (D_X)
         self.netG_A = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, opt.netG, opt.normG, not opt.no_dropout, opt.init_type, opt.init_gain, opt.no_antialias, opt.no_antialias_up, self.gpu_ids)
         self.netG_B = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, opt.netG, opt.normG, not opt.no_dropout, opt.init_type, opt.init_gain, opt.no_antialias, opt.no_antialias_up, self.gpu_ids)
-        
-        #new metrics watcher
-        self.netR = models.stn.define_stn(self.opt, self.opt.stn_type)
-        
+
         if self.isTrain:  # define discriminators
             self.netD_A = networks.define_D(opt.output_nc, opt.ndf, opt.netD, opt.n_layers_D, opt.normD, opt.init_type, opt.init_gain, opt.no_antialias, self.gpu_ids, opt)
             self.netD_B = networks.define_D(opt.output_nc, opt.ndf, opt.netD, opt.n_layers_D, opt.normD, opt.init_type, opt.init_gain, opt.no_antialias, self.gpu_ids, opt)
@@ -143,10 +110,10 @@ class CycleGANModel(BaseModel):
 
 #         The option 'direction' can be used to swap domain A and domain B.
 #         """
-#         AtoB = self.opt.direction == 'AtoB'
-#         self.real_A = input['A' if AtoB else 'B'].to(self.device)
-#         self.real_B = input['B' if AtoB else 'A'].to(self.device)
-#         self.image_paths = input['A_paths' if AtoB else 'B_paths']
+# #         AtoB = self.opt.direction == 'AtoB'
+# #         self.real_A = input['A' if AtoB else 'B'].to(self.device)
+# #         self.real_B = input['B' if AtoB else 'A'].to(self.device)
+# #         self.image_paths = input['A_paths' if AtoB else 'B_paths']
 #         x, y = input
 #         self.real_A = x.to(self.device)
 #         self.real_B = y.to(self.device)
@@ -160,7 +127,7 @@ class CycleGANModel(BaseModel):
         data = input
         x, y = data[0][0], data[1][0]
         self.real_A = x.to(self.device)
-        self.real_B = y.to(self.device)     
+        self.real_B = y.to(self.device)
         """perform histogram normalization on OCT and Gallyas OD whole slide image"""
         self.real_A_eq = (T.functional.equalize((255*self.real_A).type(torch.uint8))/255).repeat(1,3,1,1)
         self.fake_A = torch.clamp(- torch.log10(self.real_B).mean(dim=1, keepdim=True),min=0,max=1)
@@ -192,19 +159,35 @@ class CycleGANModel(BaseModel):
         padding = (int(np.ceil(h/self.dim)*self.dim-h)//2,int(np.ceil(w/self.dim)*self.dim-w)//2)
         self.unfold = torch.nn.Unfold(kernel_size=(self.dim,self.dim),padding=padding,stride=self.dim)
         self.fold = torch.nn.Fold(output_size=(h,w),kernel_size=(self.dim,self.dim),padding=padding,stride=self.dim)  
-    
-    
-#     #investigate this part
-#     def forward_stage2(self, fake_B=None):
-#         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
-#         warpped_images, self.deformation_field, reg_term = self.netR(self.real_A_eq, self.real_B, apply_on=[self.real_B, self.fake_A_eq])
+        
+#     def data_dependent_initialize(self, data):
+#         """
+#         The feature network netF is defined in terms of the shape of the intermediate, extracted
+#         features of the encoder portion of netG. Because of this, the weights of netF are
+#         initialized at the first feedforward pass with some input images.
+#         Please also see PatchSampleF.create_mlp(), which is called at the first forward() call.
+#         """
+#         self.define_fold(data)
+#         x, y = data[0][0], data[1][0]
 
-#         self.stn_reg_term = reg_term
-#         self.real_B_reg = warpped_images[0]
-#         self.fake_A_reg_eq = warpped_images[1]
-#         if fake_B != None:
-#             self.fake_B = fake_B.to(self.device)  
-            
+#         real_A_patches = self.unfold(x.permute(1,0,2,3)).reshape(self.cx,self.dim,self.dim,-1).permute(3,0,1,2)
+#         real_B_patches = self.unfold(y.permute(1,0,2,3)).reshape(self.cy,self.dim,self.dim,-1).permute(3,0,1,2)
+
+#         bs_per_gpu = self.mini_bs // max(len(self.opt.gpu_ids), 1)
+#         self.real_A = real_A_patches[:bs_per_gpu].to(self.device)
+#         self.real_B = real_B_patches[:bs_per_gpu].to(self.device)
+
+#         self.forward()                     # compute fake images: G(A)
+#         if self.isTrain:
+# #             self.compute_D_loss().backward()                  # calculate gradients for D
+# #             self.compute_G_loss().backward()                  # calculate graidents for G
+#             self.backward_D_A()      # calculate gradients for D_A
+#             self.backward_D_B()
+#             self.backward_G()
+# #             if self.opt.lambda_NCE > 0.0:
+# #                 self.optimizer_F = torch.optim.Adam(self.netF.parameters(), lr=self.opt.lr, betas=(self.opt.beta1, self.opt.beta2))
+# #                 self.optimizers.append(self.optimizer_F)
+    
 # ############################################################################################################################
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
@@ -212,8 +195,13 @@ class CycleGANModel(BaseModel):
         self.rec_A = self.netG_B(self.fake_B)   # G_B(G_A(A))
         self.fake_A = self.netG_B(self.real_B)  # G_B(B)
         self.rec_B = self.netG_A(self.fake_A)   # G_A(G_B(B))
+#         print('real_A max ',torch.max(self.real_A).cpu().detach().numpy(), ' real_A min ',torch.min(self.real_A).cpu().detach().numpy() \
+#             ,' real_B max ',torch.max(self.real_B).cpu().detach().numpy(), ' real_B min ',torch.min(self.real_B).cpu().detach().numpy())
+#         print('fake_B max ',torch.max(self.fake_B).cpu().detach().numpy(), ' fake_B min ',torch.min(self.fake_B).cpu().detach().numpy() \
+#             ,' rec_A max ',torch.max(self.rec_A).cpu().detach().numpy(), ' rec_A min ',torch.min(self.rec_A).cpu().detach().numpy())
+#         print('fake_A max ',torch.max(self.fake_A).cpu().detach().numpy(), ' fake_A min ',torch.min(self.fake_A).cpu().detach().numpy() \
+#             ,' rec_B max ',torch.max(self.rec_B).cpu().detach().numpy(), ' rec_B min ',torch.min(self.rec_B).cpu().detach().numpy())
 
-#         print("all shapes: ", self.real_A.shape, self.real_B.shape, self.fake_B.shape, self.rec_A.shape, self.fake_A.shape, self.rec_B.shape)
     def backward_D_basic(self, netD, real, fake):
         """Calculate GAN loss for the discriminator
 
@@ -244,7 +232,7 @@ class CycleGANModel(BaseModel):
     def backward_D_B(self):
         """Calculate GAN loss for discriminator D_B"""
         fake_A = self.fake_A_pool.query(self.fake_A)
-        self.loss_D_B = self.backward_D_basic(self.netD_B, self.real_A_eq, fake_A)
+        self.loss_D_B = self.backward_D_basic(self.netD_B, self.real_A, fake_A)
 
     def backward_G(self):
         """Calculate the loss for generators G_A and G_B"""
@@ -257,8 +245,8 @@ class CycleGANModel(BaseModel):
             self.idt_A = self.netG_A(self.real_B)
             self.loss_idt_A = self.criterionIdt(self.idt_A, self.real_B) * lambda_B * lambda_idt
             # G_B should be identity if real_A is fed: ||G_B(A) - A||
-            self.idt_B = self.netG_B(self.real_A_eq)
-            self.loss_idt_B = self.criterionIdt(self.idt_B, self.real_A_eq) * lambda_A * lambda_idt
+            self.idt_B = self.netG_B(self.real_A)
+            self.loss_idt_B = self.criterionIdt(self.idt_B, self.real_A) * lambda_A * lambda_idt
         else:
             self.loss_idt_A = 0
             self.loss_idt_B = 0
@@ -268,7 +256,7 @@ class CycleGANModel(BaseModel):
         # GAN loss D_B(G_B(B))
         self.loss_G_B = self.criterionGAN(self.netD_B(self.fake_A), True)
         # Forward cycle loss || G_B(G_A(A)) - A||
-        self.loss_cycle_A = self.criterionCycle(self.rec_A, self.real_A_eq) * lambda_A
+        self.loss_cycle_A = self.criterionCycle(self.rec_A, self.real_A) * lambda_A
         content_loss_value = self.content_loss()
         # Backward cycle loss || G_A(G_B(B)) - B||
         self.loss_cycle_B = self.criterionCycle(self.rec_B, self.real_B) * lambda_B
@@ -278,6 +266,12 @@ class CycleGANModel(BaseModel):
         self.loss_G.backward()
 
     def content_loss(self):
+        # print('self.rec_A -----> ',self.rec_A.shape)
+        # print('self.real_A -----> ',self.real_A.shape)
+        # print('self.rec_B -----> ',self.rec_B.shape)
+        # print('self.real_B -----> ',self.real_B.shape)
+        # print('self.fake_A -----> ',self.fake_A.shape)
+        # print('self.fake_B -----> ',self.fake_B.shape)
 
         L1_function = torch.nn.L1Loss()
         real_A_mean = torch.mean(self.real_A_eq,dim=1,keepdim=True)
@@ -293,9 +287,11 @@ class CycleGANModel(BaseModel):
 
         real_A_sigmoid = torch.sigmoid(real_A_normal)
         real_B_sigmoid = 1 - torch.sigmoid(real_B_normal)
+#         real_B_sigmoid = torch.sigmoid(real_B_normal)
     
         fake_A_sigmoid = torch.sigmoid(fake_A_normal)
         fake_B_sigmoid = 1 - torch.sigmoid(fake_B_normal)
+#         fake_B_sigmoid = torch.sigmoid(fake_B_normal)
     
         content_loss_A = L1_function( real_A_sigmoid , fake_B_sigmoid )
         content_loss_B = L1_function( fake_A_sigmoid , real_B_sigmoid )
@@ -307,8 +303,6 @@ class CycleGANModel(BaseModel):
 
     def optimize_parameters(self):
         """Calculate losses, gradients, and update network weights; called in every training iteration"""
-        self.opt.counter += 1 # increment counter
-        
         # forward
         self.forward()      # compute fake images and reconstruction images.
         # G_A and G_B
@@ -324,84 +318,34 @@ class CycleGANModel(BaseModel):
         self.optimizer_D.step()  # update D_A and D_B's weights
 
     def save_images_FFOV(self, epoch, test_dataloader):
-#         num_img = 2
-#         img_dir = f'Results/{self.opt.name}/images/'        
-#         if not os.path.exists(img_dir):
-#             os.makedirs(img_dir)
-#             print(f'Directory {img_dir} created')
-#         else:
-#             print(f'Directory {img_dir} already exists')  
-
-#         _, ax = plt.subplots(num_img, 3, figsize=(40, 40))
-#         [ax[0,j].set_title(title) for j, title in enumerate(['Source', "Translated", "Target"])]
-        
-#         for i, data in enumerate(test_dataloader):
-#             self.eval()
-#             self.set_input(data)
-#             self.define_fold(data)
-#             if self.opt.LAB_space:
-#                 target = lab_to_rgb(deprocess_lab(self.real_B.permute(0,2,3,1)))[0].detach().cpu().numpy()
-#             else:
-#                 target = (self.real_B.permute(0,2,3,1))[0].detach().cpu().numpy()
-#             source = self.real_A_eq[0].permute([1,2,0]).detach().cpu().numpy() 
-#             translated = self.patch_wise_predict(input_data=self.real_A_eq, stride_ratio=1).cpu().numpy()
-#             translated = linear_normalize(translated) 
-
-#             [ax[i,j].imshow(img) for j, img in enumerate([source, translated, target])]
-#             [ax[i,j].axis("off") for j in range(3)]
-        
-#         plt.savefig(f'{img_dir}/epoch={epoch}.png')
-#         plt.close()
-
-
-        # new metric watcher
         num_img = 2
-        metrics = np.zeros((12, num_img))   
         img_dir = f'Results/{self.opt.name}/images/'        
         if not os.path.exists(img_dir):
             os.makedirs(img_dir)
             print(f'Directory {img_dir} created')
         else:
             print(f'Directory {img_dir} already exists')  
-            
-#         if self.opt.only_train_G:
-#             _, ax = plt.subplots(num_img, 3, figsize=(40, 40))
-#             [ax[0,j].set_title(title) for j, title in enumerate(['Source', "Translated", "Target"])]
-#         if self.opt.only_train_R:
-#             _, ax = plt.subplots(num_img, 4, figsize=(40, 40))
-#             [ax[0,j].set_title(title) for j, title in enumerate(['Source', "Target", "Registered", "Deformation field"])]
-#         elif self.opt.train_G_pseudo:
-#             _, ax = plt.subplots(num_img, 5, figsize=(40, 40))
-#             [ax[0,j].set_title(title) for j, title in enumerate(['Source', "Translated", "Target", "Source_pseudo", "Translated_pseudo"])]            
-#         else:
+
         _, ax = plt.subplots(num_img, 3, figsize=(40, 40))
-#         [ax[0,j].set_title(title) for j, title in enumerate(['Source', "Translated", "Target", "Registered", "Deformation field"])]
         [ax[0,j].set_title(title) for j, title in enumerate(['Source', "Translated", "Target"])]
-            
+        
         for i, data in enumerate(test_dataloader):
             self.eval()
             self.set_input(data)
-            
             self.define_fold(data)
             if self.opt.LAB_space:
                 target = lab_to_rgb(deprocess_lab(self.real_B.permute(0,2,3,1)))[0].detach().cpu().numpy()
             else:
                 target = (self.real_B.permute(0,2,3,1))[0].detach().cpu().numpy()
-            source = self.real_A_eq[0].permute([1,2,0]).detach().cpu().numpy()
-#             if self.opt.train_G_pseudo:    
-#                 source_pseudo = self.fake_A_eq[0].permute([1,2,0]).detach().cpu().numpy()                   
-            
-#             if not self.opt.only_train_R:
+            source = self.real_A_eq[0].permute([1,2,0]).detach().cpu().numpy() 
             translated = self.patch_wise_predict(input_data=self.real_A_eq, stride_ratio=1).cpu().numpy()
-            translated = linear_normalize(translated)   
+            translated = linear_normalize(translated) 
+
             [ax[i,j].imshow(img) for j, img in enumerate([source, translated, target])]
             [ax[i,j].axis("off") for j in range(3)]
-            metrics[7:11, i] = M.unpaired_fiber_metrics(translated, target)
-            metrics[11, i] = M.vessel_area_diff(translated, target)
-
+        
         plt.savefig(f'{img_dir}/epoch={epoch}.png')
         plt.close()
-        return metrics.mean(1)
         
     def patch_wise_predict(self, input_data, patch_dim=512, bs=4, stride_ratio=4):
         dim = patch_dim
@@ -426,33 +370,3 @@ class CycleGANModel(BaseModel):
         if self.opt.LAB_space:
             test = lab_to_rgb(deprocess_lab(test))
         return test.squeeze(0).detach()
-
-#     # handle holding small nan values by adding eps
-#     def patch_wise_predict(self, input_data, patch_dim=512, bs=4, stride_ratio=4):
-#         dim = patch_dim
-#         stride = dim//stride_ratio
-#         X = input_data
-#         self.netG_A.eval()
-#         cx,h,w,cy  = X.shape[1], X.shape[2], X.shape[3],3
-#         padding = (int(np.ceil(h/dim)*dim-h)//2,int(np.ceil(w/dim)*dim-w)//2)
-#         unfold = torch.nn.Unfold(kernel_size=(dim,dim),padding=padding,stride=stride)
-#         fold = torch.nn.Fold(output_size=(h,w),kernel_size=(dim,dim),padding=padding,stride=stride)
-#         real_A_patches = unfold(X.permute(1,0,2,3)).reshape(cx,dim,dim,-1).permute(3,0,1,2)
-#         test_dataset = torch.utils.data.TensorDataset(real_A_patches)
-#         test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=bs, shuffle=False)
-#         test_patches = torch.Tensor(np.ndarray(shape=(real_A_patches.shape[0],real_A_patches.shape[2], 
-#                                      real_A_patches.shape[3],3)))
-#         weight_patches = torch.ones_like(test_patches)
-#         eps = 1e-10
-#         for i, data in enumerate(test_dataloader):
-#             output = self.netG_A(data[0].to(self.device))
-#             output[torch.isnan(output)] = eps
-#             test_patches[bs*i:bs*(i+1),:,:,:] = output.permute([0,2,3,1]).detach().cpu()
-#         test = fold(test_patches.permute(3,1,2,0).reshape(cy,dim*dim,-1)).permute(1,2,3,0)
-#         weight = fold(weight_patches.permute(3,1,2,0).reshape(cy,dim*dim,-1)).permute(1,2,3,0)
-#         weight[weight < eps] = eps
-#         test = test / weight
-#         if self.opt.LAB_space:
-#             test = lab_to_rgb(deprocess_lab(test))
-#         return test.squeeze(0).detach()
-

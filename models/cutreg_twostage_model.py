@@ -5,6 +5,7 @@ from .base_model import BaseModel
 from . import networks
 from .patchnce import PatchNCELoss
 import util.util as util
+import util.metrics_utils as M
 ## from nemar model
 import itertools
 import torch.nn.functional as F
@@ -46,7 +47,7 @@ class CUTREGtwostageModel(BaseModel):
         parser.add_argument('--train_R_with_G', type=util.str2bool, nargs='?', const=True, default=True, help='train registration network with loss terms dependent on generator')
         parser.add_argument('--only_train_R', type=util.str2bool, nargs='?', const=True, default=False, help='only train registration network')
         parser.add_argument('--only_train_G', type=util.str2bool, nargs='?', const=True, default=False, help='only train generator by CUT')
-        parser.add_argument('--train_G_pseudo', type=util.str2bool, nargs='?', const=True, default=False, help='only train generator by CUT')
+        parser.add_argument('--train_G_pseudo', type=util.str2bool, nargs='?', const=True, default=False, help='only train generator by pseudo')
 
 
         parser.add_argument('--nce_idt', type=util.str2bool, nargs='?', const=True, default=False, help='use NCE loss for identity mapping: NCE(G(Y), Y))')
@@ -157,13 +158,13 @@ class CUTREGtwostageModel(BaseModel):
     def optimize_parameters(self):
         # forward
         self.forward()
-
-        # update D
-        self.set_requires_grad(self.netD, True)
-        self.optimizer_D.zero_grad()
-        self.loss_D = self.compute_D_loss()
-        self.loss_D.backward()
-        self.optimizer_D.step()
+        if self.opt.lambda_GAN > 0.0:
+            # update D
+            self.set_requires_grad(self.netD, True)
+            self.optimizer_D.zero_grad()
+            self.loss_D = self.compute_D_loss()
+            self.loss_D.backward()
+            self.optimizer_D.step()
 
         # update G
         self.set_requires_grad(self.netD, False)
@@ -235,7 +236,7 @@ class CUTREGtwostageModel(BaseModel):
         else:        
             x, y = input
             self.real_A_eq = x.to(self.device)
-            self.real_B = y.to(self.device)
+            self.real_B_reg = y.to(self.device)
         
     def define_fold(self, data, dim = 512):
         self.dim = dim
@@ -269,7 +270,6 @@ class CUTREGtwostageModel(BaseModel):
         """Calculate GAN loss for the discriminator"""
         fake = self.fake_B.detach()
         # Fake; stop backprop to the generator by detaching fake_B
-        
         pred_fake = self.netD(fake)
         self.loss_D_fake = self.criterionGAN(pred_fake, False).mean()
         # Real
@@ -332,8 +332,8 @@ class CUTREGtwostageModel(BaseModel):
         if self.opt.lambda_LAB > 0.0:
             real_LAB = (rgb_to_lab(self.real_B_reg.permute(0,2,3,1))).to(self.device)
             fake_LAB = (rgb_to_lab(fake.permute(0,2,3,1))).to(self.device)
-            self.loss_LAB = self.opt.lambda_LAB * (self.criterionL2(real_LAB.mean(dim=(1,2)),fake_LAB.mean(dim=(1,2))) +
-                                                   self.criterionL2(real_LAB.std(dim=(1,2)),fake_LAB.std(dim=(1,2))))
+            self.loss_LAB = self.opt.lambda_LAB * (self.criterionL1(real_LAB.mean(dim=(1,2)),fake_LAB.mean(dim=(1,2))) +
+                                                   self.criterionL1(real_LAB.std(dim=(1,2)),fake_LAB.std(dim=(1,2))))
         else:
             self.loss_LAB = 0.0
             
@@ -362,7 +362,7 @@ class CUTREGtwostageModel(BaseModel):
 
         return total_nce_loss / n_layers
     
-    def patch_wise_predict(self, input_data, patch_dim=512, bs=3, stride_ratio=4):
+    def patch_wise_predict(self, input_data, patch_dim=512, bs=2, stride_ratio=4):
         dim = patch_dim
         stride = dim//stride_ratio
         X = input_data
@@ -388,10 +388,11 @@ class CUTREGtwostageModel(BaseModel):
 
     def save_images_FFOV(self, epoch, test_dataloader):
         num_img = 2
+        metrics = np.zeros((12, num_img))
         img_dir = f'Results/{self.opt.name}/images/'        
         if not os.path.exists(img_dir):
             os.makedirs(img_dir)
-            print(f'Directory {img_dir} createrd')
+            print(f'Directory {img_dir} created')
         else:
             print(f'Directory {img_dir} already exists')  
             
@@ -418,10 +419,7 @@ class CUTREGtwostageModel(BaseModel):
                 target = (self.real_B.permute(0,2,3,1))[0].detach().cpu().numpy()
             source = self.real_A_eq[0].permute([1,2,0]).detach().cpu().numpy()
             if self.opt.train_G_pseudo:    
-                source_pseudo = self.fake_A_eq[0].permute([1,2,0]).detach().cpu().numpy()    
-                
-#             translated = self.patch_wise_predict(input_data=self.real_A_eq, stride_ratio=1).cpu().numpy()
-#             translated = linear_normalize(translated)                
+                source_pseudo = self.fake_A_eq[0].permute([1,2,0]).detach().cpu().numpy()                   
             
             if not self.opt.only_train_R:
                 translated = self.patch_wise_predict(input_data=self.real_A_eq, stride_ratio=1).cpu().numpy()
@@ -455,6 +453,13 @@ class CUTREGtwostageModel(BaseModel):
             else:
                 [ax[i,j].imshow(img) for j, img in enumerate([source, translated, target, registered, df])]
                 [ax[i,j].axis("off") for j in range(5)]
+                
+#             metrics[0:4, i] = M.pixel_level_metrics(translated, registered)
+#             metrics[4:6, i] = M.fiber_PCC_and_layer_IOU(translated, registered)
+#             metrics[6, i] = M.vessel_IOU(translated, registered)
+#             metrics[7:11, i] = M.unpaired_fiber_metrics(translated, target)
+#             metrics[11, i] = M.vessel_area_diff(translated, target)
 
         plt.savefig(f'{img_dir}/epoch={epoch}.png')
         plt.close()
+        return metrics.mean(1)
