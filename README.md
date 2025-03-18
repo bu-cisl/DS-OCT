@@ -17,7 +17,7 @@ Please consider citing this paper if you found this repo useful: https://doi.org
 - JupyterLab (optional)
 
 ## Training 
-Refer to JupyterLab notebook "train-FastCUT+REG+Pseudo.ipynb" or convert it to .py file to run
+Refer to JupyterLab notebook "train-CUT+REG+Pseudo.ipynb" or convert it to .py file to run
 
 ## Testing
 Refer to JupyterLab notebook "test-G_and_R.ipynb" or convert it to .py file to run
